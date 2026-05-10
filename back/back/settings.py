@@ -15,8 +15,6 @@ from datetime import timedelta
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-CORS_ALLOW_ALL_ORIGINS = True  # Хөгжүүлэлтийн үед бүх хандалтыг зөвшөөрнө
-
 # 2. Media files (Профайл зураг хадгалах хавтас)
 import os
 
@@ -50,12 +48,12 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    'accounts',
-    'clubs',     
-
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+
+    'accounts',
+    'clubs', 
     
 ]
 
@@ -65,7 +63,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware', # Хэрэв Postman-аас 403 алдаа өгсөөр байвал түр зуур хааж болно
+    # 'django.middleware.csrf.CsrfViewMiddleware', # Хэрэв Postman-аас 403 алдаа өгсөөр байвал түр зуур хааж болно
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -74,11 +72,9 @@ MIDDLEWARE = [
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
+        # 'rest_framework.authentication.SessionAuthentication',
     ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
+    'DEFAULT_PERMISSION_CLASSES': [],
 }
 
 SIMPLE_JWT = {
@@ -88,7 +84,6 @@ SIMPLE_JWT = {
 }
       
 ROOT_URLCONF = 'back.urls'
-CORS_ALLOW_ALL_ORIGINS = True 
 
 TEMPLATES = [
     {
@@ -115,9 +110,9 @@ WSGI_APPLICATION = 'back.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'diplom1',          
+        'NAME': 'anukaDiplom',          
         'USER': 'postgres',        
-        'PASSWORD': '1234',  
+        'PASSWORD': '1230',  
         'HOST': '127.0.0.1', 
         'PORT': '5432',      
     }
@@ -165,3 +160,30 @@ USE_TZ = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'   
+
+
+
+
+# settings.py-ийн хамгийн доор нэмээрэй
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True  # Күүки болон認証 дамжуулахад хэрэгтэй
+
+# CSRF-д зориулсан нэмэлт тохиргоо
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:55401",
+    "http://127.0.0.1:55401",
+    "http://127.0.0.1:8000",
+]
+
+# Хөгжүүлэлтийн явцад CORS-ийг ямар ч толгой (headers) зөвшөөрөхөөр тохируулах
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]

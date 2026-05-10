@@ -1,26 +1,28 @@
 from django.urls import path
 from .views import (
-    SignUpAPIView, 
-    SchoolListAPIView, 
-    SchoolRequestAPIView, 
-    ApproveSchoolAPIView, 
-    UserMeView,
-    UserProfileUpdateView  # Профайл засах хэсэг
+    SignUpAPIView, SchoolListCreateAPIView, SchoolDetailAPIView,
+    ApproveSchoolAPIView, UserMeView, MySchoolUpdateView
 )
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
-    # Аутентификаци
-    path('signup/', SignUpAPIView.as_view(), name='api_signup'),
-    path('login/', TokenObtainPairView.as_view(), name='api_token_obtain'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('signup/', SignUpAPIView.as_view(), name='signup'),
+    path('login/', 
+         lambda *args, **kwargs: __import__('rest_framework_simplejwt.views', fromlist=['TokenObtainPairView']).TokenObtainPairView.as_view()(*args, **kwargs), 
+         name='login'),
     
-    # Хэрэглэгчийн мэдээлэл (Профайл)
-    path('me/', UserMeView.as_view(), name='user-me'),
-    path('me/update/', UserProfileUpdateView.as_view(), name='user-profile-update'),
-
-    # Сургуулийн удирдлага
-    path('schools/', SchoolListAPIView.as_view(), name='api_schools'),
-    path('schools/register/', SchoolRequestAPIView.as_view(), name='api_school_register'),
+    path('token/refresh/', 
+         lambda *args, **kwargs: __import__('rest_framework_simplejwt.views', fromlist=['TokenRefreshView']).TokenRefreshView.as_view()(*args, **kwargs), 
+         name='token_refresh'),
+    
+    # Profile
+    path('me/', UserMeView.as_view(), name='me'),
+    
+    # School CRUD
+    path('schools/', SchoolListCreateAPIView.as_view(), name='school_list_create'),
+    path('schools/register/', SchoolListCreateAPIView.as_view(), name='school_register'),
+    path('schools/<int:id>/', SchoolDetailAPIView.as_view(), name='school_detail'),
     path('schools/approve/<int:school_id>/', ApproveSchoolAPIView.as_view(), name='approve_school'),
+    
+    # School Admin
+    path('my-school/update/', MySchoolUpdateView.as_view(), name='my_school_update'),
 ]

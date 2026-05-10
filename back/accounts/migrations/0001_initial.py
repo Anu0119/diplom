@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
                 ('email', models.EmailField(max_length=254, unique=True)),
                 ('phone', models.CharField(blank=True, max_length=15)),
                 ('role', models.CharField(choices=[('student', 'Оюутан'), ('club_leader', 'Клубын ахлагч'), ('school_admin', 'Сургуулийн админ')], default='student', max_length=20)),
-                ('avatar', models.ImageField(blank=True, default='default.png', upload_to='avatars/')),
+                ('avatar', models.ImageField(blank=True, default='default.jpg', upload_to='avatars/')),
                 ('groups', models.ManyToManyField(blank=True, help_text='The groups this user belongs to. A user will get all permissions granted to each of their groups.', related_name='user_set', related_query_name='user', to='auth.group', verbose_name='groups')),
                 ('user_permissions', models.ManyToManyField(blank=True, help_text='Specific permissions for this user.', related_name='user_set', related_query_name='user', to='auth.permission', verbose_name='user permissions')),
                 ('school', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='accounts.school')),

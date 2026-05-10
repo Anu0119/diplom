@@ -4,34 +4,30 @@ from .models import User, School
 class SchoolSerializer(serializers.ModelSerializer):
     class Meta:
         model = School
-        fields = '__all__'
+        fields = ['id', 'name', 'address', 'admin_email', 'admin_password', 'status', 'created_at']
+        extra_kwargs = {
+            'admin_password': {'write_only': True}, # Нууц үг API хариунд харагдахгүй
+            'status': {'read_only': True}
+        }
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'password', 'school', 'role', 'phone']
         extra_kwargs = {
-            'password': {'write_only': True} # Нууц үгийг харах боломжгүй болгох
+            'password': {'write_only': True},
+            'school': {'required': False} # Энд заавал шаардахгүй болгов
         }
 
     def create(self, validated_data):
-        # Энэ хэсэг нь нууц үгийг Hash хийж хадгалдаг хэсэг юм
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            password=validated_data['password'],
-            school=validated_data.get('school'),
-            role=validated_data.get('role', 'student'),
-            phone=validated_data.get('phone', '')
-        )
+        user = User.objects.create_user(**validated_data)
         return user
 
-    def create(self, validated_data):
-        # Нууц үгийг hash хийж хадгалах
-        user = User.objects.create_user(**validated_data)
-        return user 
-
 class UserMeSerializer(serializers.ModelSerializer):
+    school_name = serializers.CharField(source='school.name', read_only=True)
+
     class Meta:
         model = User
-        fields = ["id", "username", "email", "school", "role", "phone"]
+        # 'first_name', 'last_name'-г нэмсэн
+        fields = ["id", "username", "first_name", "last_name", "email", "school", "school_name", "role", "phone", "avatar"]
+        read_only_fields = ['username', 'email', 'role', 'school']

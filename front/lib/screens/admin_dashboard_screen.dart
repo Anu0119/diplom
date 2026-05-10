@@ -8,123 +8,187 @@ class AdminDashboardScreen extends StatefulWidget {
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final ApiService _apiService = ApiService();
-  late TabController _tabController;
-  
-  List<dynamic> _pendingClubs = [];
   List<dynamic> _pendingSchools = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _fetchAllRequests();
+    // Вэб дээр хуудас бүрэн зурагдаж дууссаны дараа датаг дуудах нь аюулгүй байдаг
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchSchoolRequests();
+    });
   }
 
-  Future<void> _fetchAllRequests() async {
+  // 1. Сургуулийн хүсэлтүүдийг татах
+  Future<void> _fetchSchoolRequests() async {
+    // Хэрэв виджет устсан бол ажиллуулахгүй
     if (!mounted) return;
-    setState(() => _isLoading = true);
     
-    try {
-      final clubs = await _apiService.getClubs();
-      final schools = await _apiService.getSchools(); 
+    setState(() => _isLoading = true);
 
-      if (mounted) {
-        setState(() {
-          // Шүүх логикийг илүү баттай болгов
-          _pendingClubs = clubs.where((c) => c['is_active'] == false).toList();
-          _pendingSchools = schools.where((s) => s['status'].toString().toLowerCase() == 'pending').toList();
-          _isLoading = false;
-        });
-      }
+    try {
+      final schools = await _apiService.getSchools();
+      
+      // Асинхрон үйлдлийн дараа заавал mounted эсэхийг дахин шалгана
+      if (!mounted) return;
+
+      setState(() {
+        _pendingSchools = schools
+            .where((s) => s['status'].toString().toLowerCase() == 'pending')
+            .toList();
+        _isLoading = false;
+      });
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      debugPrint("Сургууль татахад алдаа гарлаа: $e");
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showSnackBar("Мэдээлэл татахад алдаа гарлаа.");
+      }
     }
   }
 
-  Future<void> _handleAction(String type, int id, String action) async {
-    bool success = false;
-    if (type == 'club') {
-      success = await _apiService.approveClub(id, action);
-    } else {
-      success = await _apiService.approveSchool(id, action);
-    }
+  // 2. Сургууль батлах/татгалзах үйлдэл
+  Future<void> _handleAction(int id, String action) async {
+    // Давхар даралтаас сэргийлж түр зуур loading харуулж болно
+    final success = await _apiService.approveSchool(id, action);
+
+    if (!mounted) return;
 
     if (success) {
-      _showSnackBar(action == 'approve' ? "Амжилттай баталгаажлаа" : "Татгалзлаа");
-      _fetchAllRequests();
+      _showSnackBar(action == 'approve' 
+          ? "Сургууль амжилттай баталгаажлаа" 
+          : "Сургуулийн хүсэлтээс татгалзлаа");
+      _fetchSchoolRequests(); // Жагсаалтыг шинэчлэх
     } else {
       _showSnackBar("Алдаа гарлаа. Дахин оролдоно уу.");
     }
   }
 
+  // SnackBar харуулах аюулгүй функц
   void _showSnackBar(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars(); // Өмнөх SnackBar-уудыг арилгах
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg), 
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FE),
       appBar: AppBar(
-        title: const Text("Админ удирдлага"),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: const Color(0xFF3F37D9),
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: const Color(0xFF3F37D9),
-          tabs: const [
-            Tab(text: "Клубууд"),
-            Tab(text: "Сургуулиуд"),
-          ],
+        title: const Text(
+          "Системийн удирдлага",
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Color(0xFF3F37D9)),
+            onPressed: _isLoading ? null : _fetchSchoolRequests,
+          )
+        ],
       ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator())
-        : TabBarView(
-            controller: _tabController,
-            children: [
-              _buildList('club', _pendingClubs),
-              _buildList('school', _pendingSchools),
-            ],
-          ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF3F37D9)))
+          : _pendingSchools.isEmpty
+              ? _buildEmptyState()
+              : _buildSchoolList(),
     );
   }
 
-  Widget _buildList(String type, List<dynamic> items) {
-    if (items.isEmpty) {
-      return Center(child: Text("Хүлээгдэж буй ${type == 'club' ? 'клуб' : 'сургууль'} байхгүй"));
-    }
+  // Хоосон үед харуулах дизайн
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.school_outlined, size: 80, color: Colors.grey[300]),
+          const SizedBox(height: 16),
+          const Text(
+            "Хүлээгдэж буй сургуулийн хүсэлт байхгүй",
+            style: TextStyle(color: Colors.grey, fontSize: 16),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Сургуулийн жагсаалт харуулах
+  Widget _buildSchoolList() {
     return RefreshIndicator(
-      onRefresh: _fetchAllRequests,
+      onRefresh: _fetchSchoolRequests,
+      color: const Color(0xFF3F37D9),
       child: ListView.builder(
-        padding: const EdgeInsets.all(15),
-        itemCount: items.length,
+        padding: const EdgeInsets.all(16),
+        itemCount: _pendingSchools.length,
         itemBuilder: (context, index) {
-          final item = items[index];
+          final school = _pendingSchools[index];
           return Card(
-            margin: const EdgeInsets.only(bottom: 15),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(15),
-              title: Text(item['name'] ?? 'Нэргүй', style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(type == 'club' 
-                ? "Ахлагч: ${item['leader_name'] ?? 'Тодорхойгүй'}" 
-                : "И-мэйл: ${item['admin_email']}\nХаяг: ${item['address']}"),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
+            elevation: 2,
+            margin: const EdgeInsets.only(bottom: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.check_circle, color: Colors.green),
-                    onPressed: () => _handleAction(type, item['id'], 'approve'),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          school['name'] ?? 'Нэргүй сургууль',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const Icon(Icons.pending_actions, color: Colors.orange, size: 20),
+                    ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.cancel, color: Colors.red),
-                    onPressed: () => _handleAction(type, item['id'], 'reject'),
+                  const Divider(height: 24),
+                  _infoRow(Icons.email_outlined, "Админ: ${school['admin_email']}"),
+                  const SizedBox(height: 8),
+                  _infoRow(Icons.location_on_outlined, "Хаяг: ${school['address']}"),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _handleAction(school['id'], 'reject'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: const Text("Татгалзах"),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _handleAction(school['id'], 'approve'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            elevation: 0,
+                          ),
+                          child: const Text("Батлах"),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -132,6 +196,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           );
         },
       ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: Colors.grey[600]),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(color: Colors.grey[800], fontSize: 14),
+          ),
+        ),
+      ],
     );
   }
 }

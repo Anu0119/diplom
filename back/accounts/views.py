@@ -1,135 +1,118 @@
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, generics, permissions
+from rest_framework import status, generics
 from rest_framework.permissions import IsAdminUser, AllowAny, IsAuthenticated
-from django.contrib.auth import authenticate
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
-from rest_framework_simplejwt.tokens import RefreshToken # JWT import нэмэв
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.shortcuts import get_object_or_404
 
-from .serializers import UserSerializer, SchoolSerializer, UserMeSerializer
 from .models import School, User
+from .serializers import UserSerializer, SchoolSerializer, UserMeSerializer
+from .permissions import IsSchoolAdmin
 
-# 1. Оюутан өөрөө бүртгүүлэх
-@method_decorator(csrf_exempt, name='dispatch')
+# 1. Сургуулийн CRUD (Зөвхөн Системийн Админ болон Сургууль хүсэлт илгээх)
+class SchoolListCreateAPIView(generics.ListCreateAPIView):
+    """
+    GET: Батлагдсан сургуулиудыг харах
+    POST: Сургууль бүртгүүлэх хүсэлт илгээх (Pending төлөвтэй үүснэ)
+    """
+    serializer_class = SchoolSerializer
+    
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [AllowAny()]
+        return [AllowAny()]
+
+    def get_queryset(self):
+        # Системийн админ (staff) бүх сургуулийг харна, бусад нь зөвхөн батлагдсаныг
+        if self.request.user.is_authenticated and self.request.user.is_staff:
+            return School.objects.all()
+        return School.objects.filter(status='approved')
+
+class SchoolDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
+    """Сургуулийн мэдээлэл харах, засах, устгах (Зөвхөн Системийн Админ)"""
+    queryset = School.objects.all()
+    serializer_class = SchoolSerializer
+    lookup_field = 'id'
+    permission_classes = [IsAdminUser]
+
+# 2. Оюутан бүртгүүлэх (Сургуулийг и-мэйлээр автоматаар танина)
 class SignUpAPIView(APIView):
-    permission_classes = [AllowAny] 
-
-    def post(self, request):
-        email = request.data.get('email')
-        school_id = request.data.get('school')
-        
-        if school_id and email:
-            try:
-                school = School.objects.get(id=school_id)
-                # Домэйн шалгах: admin@must.edu.mn -> must.edu.mn
-                expected_domain = school.admin_email.split('@')[-1]
-                user_domain = email.split('@')[-1]
-                
-                if user_domain != expected_domain:
-                    return Response({
-                        "error": f"Та заавал {school.name}-ийн албан ёсны и-мэйлээр (@{expected_domain}) бүртгүүлэх ёстой."
-                    }, status=status.HTTP_400_BAD_REQUEST)
-            except School.DoesNotExist:
-                return Response({"error": "Сургууль олдсонгүй."}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = UserSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({
-                "message": "Хэрэглэгч амжилттай бүртгэгдлээ.",
-                "user": serializer.data 
-            }, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-# 2. Нэвтрэх
-class LoginAPIView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
         email = request.data.get('email')
-        password = request.data.get('password')
         
-        user = authenticate(request, username=email, password=password)
-        
-        if user:
-            # JWT токен үүсгэх
-            refresh = RefreshToken.for_user(user)
-            
+        if not email or '@' not in email:
+            return Response({"error": "Хүчинтэй и-мэйл хаяг оруулна уу."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Домэйныг салгаж авах (жишээ нь: student@must.edu.mn -> must.edu.mn)
+        user_domain = email.split('@')[-1].lower()
+
+        # 2. Тухайн домэйнтэй батлагдсан сургуулийг хайх
+        school = School.objects.filter(
+            admin_email__icontains=user_domain, 
+            status='approved'
+        ).first()
+
+        if not school:
             return Response({
-                "message": "Амжилттай нэвтэрлээ",
-                "refresh": str(refresh),
-                "access": str(refresh.access_token),
-                "role": getattr(user, 'role', 'student'), # Role талбар байхгүй бол алдаа гарахаас сэргийлэв
-                "user": UserSerializer(user).data
-            }, status=status.HTTP_200_OK)
+                "error": f"Таны и-мэйл домэйн ({user_domain}) бүртгэлтэй сургууль олдсонгүй. Сургууль тань батлагдаагүй байна."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Мэдээллийг бэлдэх
+        data = request.data.copy()
         
-        return Response({
-            "error": "И-мэйл эсвэл нууц үг буруу байна"
-        }, status=status.HTTP_401_UNAUTHORIZED) 
+        # Username байхгүй бол и-мэйлийг нь username болгох (IntegrityError-оос сэргийлнэ)
+        if not data.get('username'):
+            data['username'] = email
 
-# 3. Баталгаажсан сургуулиудын жагсаалт харах
-@method_decorator(csrf_exempt, name='dispatch')
-class SchoolListAPIView(APIView):
-    permission_classes = [AllowAny] # Нэвтрээгүй хэрэглэгч сургуулиа сонгох боломжтой байна
-    
-    def get(self, request):
-        approved_schools = School.objects.filter(status='approved')
-        serializer = SchoolSerializer(approved_schools, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-# 4. Сургууль шинээр бүртгүүлэх хүсэлт илгээх
-@method_decorator(csrf_exempt, name='dispatch')
-class SchoolRequestAPIView(APIView):
-    permission_classes = [AllowAny] 
-
-    def post(self, request):
-        serializer = SchoolSerializer(data=request.data)
+        serializer = UserSerializer(data=data)
         if serializer.is_valid():
-            serializer.save(status='pending') 
+            # Оюутныг олсон сургуульд нь автоматаар холбож хадгалах
+            serializer.save(school=school, role='student')
             return Response({
-                "message": "Сургуулийн бүртгэлийн хүсэлт амжилттай илгээгдлээ. Админ шалгаж байна.",
-                "data": serializer.data
+                "message": f"Та {school.name} сургуулийн оюутнаар амжилттай бүртгэгдлээ.",
+                "user": serializer.data
             }, status=status.HTTP_201_CREATED)
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# 5. Сургуулийг баталгаажуулах (Зөвхөн Админ)
-@method_decorator(csrf_exempt, name='dispatch')
+# 3. Сургуулийг баталгаажуулах
 class ApproveSchoolAPIView(APIView):
-    permission_classes = [IsAdminUser] # Аюулгүй байдлын үүднээс зөвхөн админ хандана
+    permission_classes = [IsAdminUser]
 
     def post(self, request, school_id):
-        try:
-            school = School.objects.get(id=school_id)
-            action = request.data.get('action') # 'approve' эсвэл 'reject'
+        school = get_object_or_404(School, id=school_id)
+        action = request.data.get('action') # 'approve' эсвэл 'reject'
 
-            if action == 'approve':
-                school.status = 'approved'
-                school.save()
-                return Response({"message": f"{school.name} баталгаажлаа."}, status=status.HTTP_200_OK)
-            
-            elif action == 'reject':
-                school.status = 'rejected'
-                school.save()   
-                return Response({"message": f"{school.name} хүсэлтээс татгалзлаа."}, status=status.HTTP_200_OK)
-            
-            return Response({"error": "Буруу үйлдэл. 'approve' эсвэл 'reject' илгээнэ үү."}, status=status.HTTP_400_BAD_REQUEST)
+        if action == 'approve':
+            school.status = 'approved'
+            school.save() # Энэ үед Model-ийн save() ажиллаж сургуулийн админ User үүснэ
+            return Response({"message": f"{school.name} баталгаажлаа."}, status=status.HTTP_200_OK)
+        elif action == 'reject':
+            school.status = 'rejected'
+            school.save()
+            return Response({"message": "Хүсэлтээс татгалзлаа."}, status=status.HTTP_200_OK)
+        
+        return Response({"error": "Буруу үйлдэл. 'approve' эсвэл 'reject' утга илгээнэ үү."}, status=status.HTTP_400_BAD_REQUEST)
 
-        except School.DoesNotExist:
-            return Response({"error": "Сургууль олдсонгүй."}, status=status.HTTP_404_NOT_FOUND)
-
-# 6. Хэрэглэгчийн мэдээлэл
-class UserMeView(APIView):
+# 4. Профайл (User Me)
+class UserMeView(generics.RetrieveUpdateAPIView):
+    """Өөрийн мэдээллийг харах болон засах (Зураг оруулах хэсэг)"""
     permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        serializer = UserMeSerializer(request.user)
-        return Response(serializer.data)
-
-# 7. Профайл шинэчлэх
-class UserProfileUpdateView(generics.RetrieveUpdateAPIView):
     serializer_class = UserMeSerializer
-    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser) # Зураг хүлээж авахад хэрэгтэй
 
     def get_object(self):
         return self.request.user
+
+# 5. Сургуулийн админ өөрийн сургуулийг засах
+class MySchoolUpdateView(generics.UpdateAPIView):
+    serializer_class = SchoolSerializer
+    permission_classes = [IsSchoolAdmin]
+
+    def get_object(self):
+        if not self.request.user.school:
+            return Response({"error": "Танд харьяалагдах сургууль байхгүй байна."}, status=404)
+        return self.request.user.school
