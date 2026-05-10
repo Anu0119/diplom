@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../theme/app_theme.dart';
-import 'club_detail_screen.dart'; // <--- Дэлгэрэнгүй хуудасны файлыг энд заавал импортлоорой
+import 'club_detail_screen.dart';
 
 class ClubScreen extends StatefulWidget {
   const ClubScreen({super.key});
@@ -26,6 +26,12 @@ class _ClubScreenState extends State<ClubScreen> with SingleTickerProviderStateM
     _fetch(); 
   }
 
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetch() async {
     if (!mounted) return;
     String? token = await _storage.read(key: "access");
@@ -43,6 +49,72 @@ class _ClubScreenState extends State<ClubScreen> with SingleTickerProviderStateM
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  // КЛУБ ҮҮСГЭХ API ХҮСЭЛТ
+  Future<void> _createClub(String name, String desc) async {
+    String? token = await _storage.read(key: "access");
+    try {
+      final res = await http.post(
+        Uri.parse('$_base/clubs/create/'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode({'name': name, 'description': desc}),
+      );
+      if (res.statusCode == 201) {
+        _fetch(); // Жагсаалтыг шинэчлэх
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('🎉 Клуб нээх хүсэлт илгээгдлээ. Админ баталгаажуулсны дараа харагдах болно.')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("Error creating club: $e");
+    }
+  }
+
+  // ҮҮСГЭХ ЦОНХ (BOTTOM SHEET)
+  void _showCreate() {
+    final nameCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.bgCard,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.of(context).viewInsets.bottom + 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppTheme.textMuted, borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 20),
+            const Text('Шинэ клуб үүсгэх', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: AppTheme.textPrimary)),
+            const SizedBox(height: 20),
+            _SheetField(ctrl: nameCtrl, hint: 'Клубын нэр', icon: Icons.groups_rounded),
+            const SizedBox(height: 12),
+            _SheetField(ctrl: descCtrl, hint: 'Тайлбар', icon: Icons.description_outlined, maxLines: 3),
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: () {
+                if (nameCtrl.text.isNotEmpty) {
+                  _createClub(nameCtrl.text, descCtrl.text);
+                  Navigator.pop(context);
+                }
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(gradient: AppTheme.primaryGradient, borderRadius: BorderRadius.circular(16)),
+                child: const Text('Хүсэлт илгээх', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -77,10 +149,13 @@ class _ClubScreenState extends State<ClubScreen> with SingleTickerProviderStateM
   }
 
   Widget _addButton() {
-    return Container(
-      width: 40, height: 40,
-      decoration: BoxDecoration(gradient: AppTheme.primaryGradient, borderRadius: BorderRadius.circular(12)),
-      child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
+    return GestureDetector(
+      onTap: _showCreate, // ЭНД ДАРАХАД ЦОНХ НЭЭГДЭНЭ
+      child: Container(
+        width: 40, height: 40,
+        decoration: BoxDecoration(gradient: AppTheme.primaryGradient, borderRadius: BorderRadius.circular(12)),
+        child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
+      ),
     );
   }
 
@@ -115,17 +190,39 @@ class _ClubScreenState extends State<ClubScreen> with SingleTickerProviderStateM
                 club: clubs[i], 
                 colorIdx: i, 
                 onTap: () async {
-                  // КАРТ ДЭЭР ДАРАХАД ТУСДАА БАЙГАА DETAIL ХУУДАС РУУ ҮСРЭНЭ
                   final changed = await Navigator.push(
                     context, 
                     MaterialPageRoute(builder: (_) => ClubDetailScreen(club: clubs[i]))
                   );
-                  if (changed == true) _fetch(); // Хэрэв дэлгэрэнгүй хуудаснаас ямар нэг өөрчлөлт гарвал жагсаалтыг шинэчилнэ
+                  if (changed == true) _fetch();
                 }
               ),
             ),
     );
   }
+}
+
+// ОРОЛТЫН ТАЛБАРЫН ДИЗАЙН
+class _SheetField extends StatelessWidget {
+  final TextEditingController ctrl;
+  final String hint;
+  final IconData icon;
+  final int maxLines;
+  const _SheetField({required this.ctrl, required this.hint, required this.icon, this.maxLines = 1});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(color: AppTheme.surfaceLight, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white.withOpacity(.07))),
+    child: TextField(
+      controller: ctrl, maxLines: maxLines,
+      style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+      decoration: InputDecoration(
+        hintText: hint, hintStyle: const TextStyle(color: AppTheme.textMuted),
+        prefixIcon: Icon(icon, color: AppTheme.primary, size: 20),
+        border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+    ),
+  );
 }
 
 class _ClubGridCard extends StatelessWidget {
